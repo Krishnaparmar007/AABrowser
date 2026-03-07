@@ -80,6 +80,8 @@ class MainActivity : AppCompatActivity() {
     private var isShowingCleartextDialog: Boolean = false
     private var latestReleaseUrl: String = "https://github.com/kododake/AABrowser/releases"
     private val umamiTracker: UmamiTracker by lazy { UmamiTracker(applicationContext) }
+    private var pendingPermissionRequest: android.webkit.PermissionRequest? = null
+    private var speechBridge: com.kododake.aabrowser.web.SpeechRecognitionBridge? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -126,6 +128,8 @@ class MainActivity : AppCompatActivity() {
         handler.removeCallbacks(autoHideMenuFab)
         handler.removeCallbacks(showMenuFabRunnable)
         exitFullscreen()
+        speechBridge?.destroy()
+        speechBridge = null
         binding.webView.releaseCompletely()
         webView = null
         super.onDestroy()
@@ -141,6 +145,44 @@ class MainActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return
         ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_CODE_POST_NOTIFICATIONS)
+    }
+
+    private fun handleWebPermissionRequest(request: android.webkit.PermissionRequest) {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            val allowed = setOf(
+                android.webkit.PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID,
+                android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE
+            )
+            val grantable = request.resources.filter { it in allowed }.toTypedArray()
+            if (grantable.isNotEmpty()) request.grant(grantable) else request.deny()
+        } else {
+            pendingPermissionRequest = request
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_CODE_RECORD_AUDIO)
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_CODE_RECORD_AUDIO) {
+            val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+
+            val request = pendingPermissionRequest
+            pendingPermissionRequest = null
+            if (request != null) {
+                if (granted) {
+                    val allowed = setOf(
+                        android.webkit.PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID,
+                        android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE
+                    )
+                    val grantable = request.resources.filter { it in allowed }.toTypedArray()
+                    if (grantable.isNotEmpty()) request.grant(grantable) else request.deny()
+                } else {
+                    request.deny()
+                }
+            }
+
+            speechBridge?.onPermissionResult(granted)
+        }
     }
 
     private fun showFreeDroidWarnOnUpgradeMaterial() {
@@ -275,13 +317,28 @@ class MainActivity : AppCompatActivity() {
             },
             onExitFullscreen = {
                 runOnUiThread { exitFullscreen(true) }
+            },
+            onPermissionRequest = { request ->
+                runOnUiThread { handleWebPermissionRequest(request) }
             }
         )
 
         webView = binding.webView
         webView?.let { view ->
             configureWebView(view, browserCallbacks ?: BrowserCallbacks(), desktopMode, currentUserAgentProfile)
-            
+
+            speechBridge = com.kododake.aabrowser.web.SpeechRecognitionBridge(view) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(Manifest.permission.RECORD_AUDIO),
+                    REQUEST_CODE_RECORD_AUDIO
+                )
+            }
+            view.addJavascriptInterface(
+                speechBridge!!,
+                com.kododake.aabrowser.web.SpeechRecognitionBridge.JS_INTERFACE_NAME
+            )
+
             view.addJavascriptInterface(object {
                 @android.webkit.JavascriptInterface
                 fun openExternal(url: String) {
@@ -843,5 +900,6 @@ class MainActivity : AppCompatActivity() {
         private const val FREE_DROID_WARN_SOLUTIONS_URL = "https://github.com/woheller69/FreeDroidWarn?tab=readme-ov-file#solutions"
         private const val FREE_DROID_WARN_VERSION_KEY = "versionCodeWarn"
         private const val REQUEST_CODE_POST_NOTIFICATIONS = 1101
+        private const val REQUEST_CODE_RECORD_AUDIO = 1102
     }
 }
