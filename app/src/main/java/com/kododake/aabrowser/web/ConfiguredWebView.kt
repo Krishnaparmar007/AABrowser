@@ -35,7 +35,8 @@ data class BrowserCallbacks(
         cancel: () -> Unit
     ) -> Unit = { _, _, _, cancel -> cancel() },
     val onEnterFullscreen: (View, WebChromeClient.CustomViewCallback) -> Unit = { _, _ -> },
-    val onExitFullscreen: () -> Unit = {}
+    val onExitFullscreen: () -> Unit = {},
+    val onPermissionRequest: (PermissionRequest) -> Unit = { it.deny() }
 )
 
 fun configureWebView(
@@ -124,6 +125,7 @@ fun configureWebView(
 
             override fun onPageFinished(view: WebView, url: String?) {
                 super.onPageFinished(view, url)
+                view.evaluateJavascript(SpeechRecognitionBridge.POLYFILL_JS, null)
                 url?.let(callbacks.onUrlChange)
             }
 
@@ -164,19 +166,18 @@ fun configureWebView(
                 errorResponse: WebResourceResponse
             ) {
                 if (request.isForMainFrame) {
-                    val status = try { errorResponse.statusCode } catch (_: Exception) { -1 }
-                    val reason = errorResponse.reasonPhrase ?: ""
-                    if (status == 429) return
-
-                    val failed = request.url?.toString().orEmpty()
-                    val assetUrl = "file:///android_asset/error.html?failedUrl=${Uri.encode(failed)}&httpStatus=$status&code=$status&message=${Uri.encode(reason)}"
-                    try {
-                        view.loadUrl(assetUrl)
+                    val code = errorResponse.statusCode
+                    if (code in 400..599 && code != 429) {
+                        val failed = request.url?.toString().orEmpty()
+                        val message = errorResponse.reasonPhrase.orEmpty()
+                        val assetUrl = "file:///android_asset/error.html?failedUrl=${Uri.encode(failed)}&code=$code&message=${Uri.encode(message)}"
+                        try {
+                            view.loadUrl(assetUrl)
+                        } catch (_: Exception) {
+                            callbacks.onError(code, message)
+                        }
                         return
-                    } catch (_: Exception) {}
-
-                    callbacks.onError(status, reason)
-                    return
+                    }
                 }
             }
 
@@ -221,16 +222,23 @@ fun configureWebView(
             override fun onPermissionRequest(request: PermissionRequest?) {
                 if (request == null) return
 
-                val grantable = request.resources.filter { resource ->
-                    resource == PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID
-                }.toTypedArray()
+                val allowed = setOf(
+                    PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID,
+                    PermissionRequest.RESOURCE_AUDIO_CAPTURE
+                )
+
+                val grantable = request.resources.filter { it in allowed }.toTypedArray()
 
                 if (grantable.isEmpty()) {
                     request.deny()
                     return
                 }
 
-                this@with.post { request.grant(grantable) }
+                if (PermissionRequest.RESOURCE_AUDIO_CAPTURE in grantable) {
+                    callbacks.onPermissionRequest(request)
+                } else {
+                    this@with.post { request.grant(grantable) }
+                }
             }
 
             override fun onCreateWindow(
