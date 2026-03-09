@@ -225,7 +225,7 @@
                                         android:layout_width="48dp"
                                         android:layout_height="48dp"
                                         android:contentDescription="@string/menu_go"
-                                        app:icon="@android:drawable/ic_menu_search"
+                                        app:icon="@drawable/search_24px"
                                         app:iconSize="20dp" />
 
                                 </LinearLayout>
@@ -261,7 +261,7 @@
                                         android:layout_margin="4dp"
                                         android:text="@string/menu_back"
                                         android:textSize="13sp"
-                                        app:icon="@android:drawable/ic_menu_revert"
+                                        app:icon="@drawable/arrow_back_24px"
                                         app:iconGravity="top"
                                         app:iconSize="@dimen/icon_size_small"
                                         app:iconPadding="4dp" />
@@ -277,7 +277,7 @@
                                         android:layout_margin="4dp"
                                         android:text="@string/menu_reload"
                                         android:textSize="13sp"
-                                        app:icon="@android:drawable/ic_popup_sync"
+                                        app:icon="@drawable/refresh_24px"
                                         app:iconGravity="top"
                                         app:iconSize="@dimen/icon_size_small"
                                         app:iconPadding="4dp" />
@@ -293,7 +293,7 @@
                                         android:layout_margin="4dp"
                                         android:text="@string/menu_forward"
                                         android:textSize="13sp"
-                                        app:icon="@android:drawable/ic_media_play"
+                                        app:icon="@drawable/arrow_forward_24px"
                                         app:iconGravity="top"
                                         app:iconSize="@dimen/icon_size_small"
                                         app:iconPadding="4dp" />
@@ -309,7 +309,7 @@
                                         android:layout_margin="4dp"
                                         android:text="@string/menu_bookmarks"
                                         android:textSize="13sp"
-                                        app:icon="@android:drawable/star_on"
+                                        app:icon="@drawable/kid_star_24px"
                                         app:iconGravity="top"
                                         app:iconSize="@dimen/icon_size_small"
                                         app:iconPadding="4dp" />
@@ -341,7 +341,7 @@
                                         android:layout_margin="4dp"
                                         android:text="@string/menu_settings"
                                         android:textSize="13sp"
-                                        app:icon="@drawable/ic_settings"
+                                        app:icon="@drawable/settings_24px"
                                         app:iconGravity="top"
                                         app:iconSize="@dimen/icon_size_small"
                                         app:iconPadding="4dp" />
@@ -529,7 +529,7 @@
                                             android:text="@string/menu_back"
                                             android:textColor="?attr/colorOnPrimaryContainer"
                                             app:strokeColor="?attr/colorOnPrimaryContainer"
-                                            app:icon="@android:drawable/ic_menu_revert"
+                                            app:icon="@drawable/arrow_back_24px"
                                             app:iconTint="?attr/colorOnPrimaryContainer"
                                             app:iconGravity="start" />
                                     </LinearLayout>
@@ -636,7 +636,7 @@
                                             android:text="@string/qr_code_back"
                                             android:textColor="?attr/colorOnPrimaryContainer"
                                             app:strokeColor="?attr/colorOnPrimaryContainer"
-                                            app:icon="@android:drawable/ic_menu_revert"
+                                            app:icon="@drawable/arrow_back_24px"
                                             app:iconTint="?attr/colorOnPrimaryContainer"
                                             app:iconGravity="start" />
                                     </LinearLayout>
@@ -693,7 +693,7 @@
                                             android:layout_weight="1"
                                             android:layout_marginEnd="8dp"
                                             android:text="Copy URL"
-                                            app:icon="@android:drawable/ic_menu_save" />
+                                            app:icon="@drawable/content_copy_24px" />
 
                                         <com.google.android.material.button.MaterialButton
                                             android:id="@+id/buttonQrExternalBrowser"
@@ -783,7 +783,7 @@
                                             android:text="@string/check_latest_back"
                                             android:textColor="?attr/colorOnPrimaryContainer"
                                             app:strokeColor="?attr/colorOnPrimaryContainer"
-                                            app:icon="@android:drawable/ic_menu_revert"
+                                            app:icon="@drawable/arrow_back_24px"
                                             app:iconTint="?attr/colorOnPrimaryContainer"
                                             app:iconGravity="start" />
                                     </LinearLayout>

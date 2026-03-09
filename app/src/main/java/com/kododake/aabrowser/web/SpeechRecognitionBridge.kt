@@ -1,59 +1,60 @@
 package com.kododake.aabrowser.web
 
-import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
-import android.webkit.JavascriptInterface
 import android.webkit.WebView
-import androidx.core.content.ContextCompat
+import androidx.webkit.WebMessageCompat
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
 import java.lang.ref.WeakReference
 
 class SpeechRecognitionBridge(
     webView: WebView,
-    private val onNeedPermission: () -> Unit
+    private val onRequestMicrophoneAccess: (String?) -> Unit
 ) : RecognitionListener {
+
+    private enum class BridgeCommand {
+        START,
+        STOP,
+        ABORT
+    }
 
     private val webViewRef = WeakReference(webView)
     private var speechRecognizer: SpeechRecognizer? = null
     private var pendingLang: String? = null
 
-    @JavascriptInterface
-    fun startRecognition(lang: String) {
-        val webView = webViewRef.get() ?: return
-        val context = webView.context
+    fun handleWebMessage(
+        message: WebMessageCompat,
+        sourceOrigin: Uri,
+        isMainFrame: Boolean,
+        currentPageUrl: String?
+    ) {
+        if (!isTrustedCaller(sourceOrigin, isMainFrame, currentPageUrl)) return
 
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            pendingLang = lang
-            webView.post { onNeedPermission() }
-            return
-        }
+        val payload = message.data ?: return
+        val command = parseCommand(payload) ?: return
+        when (command.first) {
+            BridgeCommand.START -> {
+                pendingLang = command.second.orEmpty()
+                webViewRef.get()?.post { onRequestMicrophoneAccess(sourceOrigin.toString()) }
+            }
 
-        webView.post { startListening(lang) }
-    }
+            BridgeCommand.STOP -> {
+                webViewRef.get()?.post { speechRecognizer?.stopListening() }
+            }
 
-    @JavascriptInterface
-    fun stopRecognition() {
-        val webView = webViewRef.get() ?: return
-        webView.post {
-            speechRecognizer?.stopListening()
-        }
-    }
-
-    @JavascriptInterface
-    fun abortRecognition() {
-        val webView = webViewRef.get() ?: return
-        webView.post {
-            speechRecognizer?.cancel()
-            stopInternal()
-            dispatchSimple("end")
+            BridgeCommand.ABORT -> {
+                webViewRef.get()?.post {
+                    speechRecognizer?.cancel()
+                    stopInternal()
+                    dispatchSimple("end")
+                }
+            }
         }
     }
 
@@ -71,6 +72,8 @@ class SpeechRecognitionBridge(
     fun destroy() {
         stopInternal()
     }
+
+    fun hasPendingPermissionRequest(): Boolean = pendingLang != null
 
     private fun startListening(lang: String) {
         val webView = webViewRef.get() ?: return
@@ -104,6 +107,42 @@ class SpeechRecognitionBridge(
             try { destroy() } catch (_: Exception) {}
         }
         speechRecognizer = null
+    }
+
+    private fun isTrustedCaller(sourceOrigin: Uri, isMainFrame: Boolean, currentPageUrl: String?): Boolean {
+        if (!isMainFrame) return false
+        val currentPageOrigin = currentPageUrl
+            ?.let { runCatching { Uri.parse(it) }.getOrNull() }
+            ?.takeIf { it.scheme in setOf("http", "https") && !it.host.isNullOrBlank() }
+            ?: return false
+        return normalizedOrigin(sourceOrigin) == normalizedOrigin(currentPageOrigin)
+    }
+
+    private fun normalizedOrigin(uri: Uri): String {
+        val scheme = uri.scheme?.lowercase().orEmpty()
+        val host = uri.host?.lowercase().orEmpty()
+        val port = when {
+            uri.port != -1 -> uri.port
+            scheme == "https" -> 443
+            scheme == "http" -> 80
+            else -> -1
+        }
+        return "$scheme://$host:$port"
+    }
+
+    private fun parseCommand(payload: String): Pair<BridgeCommand, String?>? {
+        return try {
+            val json = JSONObject(payload)
+            val type = json.optString("type").lowercase()
+            when (type) {
+                "start" -> BridgeCommand.START to json.optString("lang")
+                "stop" -> BridgeCommand.STOP to null
+                "abort" -> BridgeCommand.ABORT to null
+                else -> null
+            }
+        } catch (_: JSONException) {
+            null
+        }
     }
 
     private fun dispatchSimple(eventType: String) {
@@ -207,12 +246,13 @@ class SpeechRecognitionBridge(
     override fun onEvent(eventType: Int, params: Bundle?) {}
 
     companion object {
-        const val JS_INTERFACE_NAME = "_SpeechBridge"
+        const val BRIDGE_OBJECT_NAME = "_SpeechBridgeChannel"
 
         val POLYFILL_JS = """
             (function(){
                 if(window.__sr_polyfill) return;
                 window.__sr_polyfill = true;
+                var bridge = window.${BRIDGE_OBJECT_NAME};
                 var active = null;
                 window.__sr_event = function(type, data) {
                     if(!active) return;
@@ -237,6 +277,21 @@ class SpeechRecognitionBridge(
                     }
                     if(type === 'end') active = null;
                 };
+                function postToNative(payload) {
+                    if(!bridge || typeof bridge.postMessage !== 'function') {
+                        window.__sr_event('error', 'service-not-allowed');
+                        window.__sr_event('end');
+                        return false;
+                    }
+                    try {
+                        bridge.postMessage(JSON.stringify(payload));
+                        return true;
+                    } catch(e) {
+                        window.__sr_event('error', 'service-not-allowed');
+                        window.__sr_event('end');
+                        return false;
+                    }
+                }
                 function SR() {
                     this.lang = '';
                     this.continuous = false;
@@ -254,13 +309,13 @@ class SpeechRecognitionBridge(
                 }
                 SR.prototype.start = function() {
                     active = this;
-                    try { _SpeechBridge.startRecognition(this.lang || ''); } catch(e) {}
+                    postToNative({type: 'start', lang: this.lang || ''});
                 };
                 SR.prototype.stop = function() {
-                    try { _SpeechBridge.stopRecognition(); } catch(e) {}
+                    postToNative({type: 'stop'});
                 };
                 SR.prototype.abort = function() {
-                    try { _SpeechBridge.abortRecognition(); } catch(e) {}
+                    postToNative({type: 'abort'});
                 };
                 SR.prototype.addEventListener = function(type, fn) {
                     this['on' + type] = fn;

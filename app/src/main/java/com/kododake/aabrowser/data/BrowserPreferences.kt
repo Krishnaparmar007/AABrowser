@@ -13,6 +13,7 @@ object BrowserPreferences {
     private const val KEY_USER_AGENT_PROFILE = "user_agent_profile"
     private const val KEY_BOOKMARKS = "bookmarks"
     private const val KEY_ALLOWED_CLEAR_HOSTS = "allowed_clear_hosts"
+    private const val KEY_ALLOWED_MICROPHONE_HOSTS = "allowed_microphone_hosts"
     private const val DEFAULT_URL = "https://www.google.com"
     private const val SEARCH_TEMPLATE = "https://www.google.com/search?q=%s"
 
@@ -130,32 +131,59 @@ object BrowserPreferences {
     fun defaultUrl(): String = DEFAULT_URL
 
     fun isHostAllowedCleartext(context: Context, host: String?): Boolean {
-        if (host == null) return false
+        return isHostAllowed(context, KEY_ALLOWED_CLEAR_HOSTS, host)
+    }
+
+    fun addAllowedCleartextHost(context: Context, host: String) {
+        addAllowedHost(context, KEY_ALLOWED_CLEAR_HOSTS, host)
+    }
+
+    fun isHostAllowedMicrophone(context: Context, host: String?): Boolean {
+        return isHostAllowed(context, KEY_ALLOWED_MICROPHONE_HOSTS, host)
+    }
+
+    fun addAllowedMicrophoneHost(context: Context, host: String) {
+        addAllowedHost(context, KEY_ALLOWED_MICROPHONE_HOSTS, host)
+    }
+
+    fun clearSavedSitePermissions(context: Context) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .remove(KEY_ALLOWED_CLEAR_HOSTS)
+            .remove(KEY_ALLOWED_MICROPHONE_HOSTS)
+            .apply()
+    }
+
+    private fun isHostAllowed(context: Context, key: String, host: String?): Boolean {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val serialized = prefs.getString(KEY_ALLOWED_CLEAR_HOSTS, null) ?: return false
+        val normalizedHost = host?.trim()?.lowercase()
+        if (normalizedHost.isNullOrEmpty()) return false
+        val serialized = prefs.getString(key, null) ?: return false
         return runCatching {
             val array = JSONArray(serialized)
             for (i in 0 until array.length()) {
-                if (array.optString(i).equals(host, ignoreCase = true)) return true
+                if (array.optString(i).equals(normalizedHost, ignoreCase = true)) return true
             }
             false
         }.getOrDefault(false)
     }
 
-    fun addAllowedCleartextHost(context: Context, host: String) {
+    private fun addAllowedHost(context: Context, key: String, host: String) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val current = prefs.getString(KEY_ALLOWED_CLEAR_HOSTS, null)
+        val normalizedHost = host.trim().lowercase()
+        if (normalizedHost.isEmpty()) return
+        val current = prefs.getString(key, null)
         val list = runCatching {
             val arr = JSONArray(current)
             buildList(arr.length()) {
                 for (i in 0 until arr.length()) add(arr.optString(i))
             }.toMutableList()
         }.getOrDefault(mutableListOf())
-        if (list.any { it.equals(host, ignoreCase = true) }) return
-        list.add(host)
+        if (list.any { it.equals(normalizedHost, ignoreCase = true) }) return
+        list.add(normalizedHost)
         val out = JSONArray()
         list.forEach { out.put(it) }
-        prefs.edit().putString(KEY_ALLOWED_CLEAR_HOSTS, out.toString()).apply()
+        prefs.edit().putString(key, out.toString()).apply()
     }
 
     private fun loadBookmarks(context: Context): List<String> {

@@ -36,6 +36,9 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.isVisible
+import androidx.webkit.WebMessageCompat
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import com.kododake.aabrowser.data.BrowserPreferences
 import com.kododake.aabrowser.databinding.ActivityMainBinding
 import com.kododake.aabrowser.model.UserAgentProfile
@@ -78,6 +81,7 @@ class MainActivity : AppCompatActivity() {
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
     private var isShowingCleartextDialog: Boolean = false
+    private var isShowingMicrophoneDialog: Boolean = false
     private var latestReleaseUrl: String = "https://github.com/kododake/AABrowser/releases"
     private val umamiTracker: UmamiTracker by lazy { UmamiTracker(applicationContext) }
     private var pendingPermissionRequest: android.webkit.PermissionRequest? = null
@@ -147,17 +151,206 @@ class MainActivity : AppCompatActivity() {
         ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_CODE_POST_NOTIFICATIONS)
     }
 
-    private fun handleWebPermissionRequest(request: android.webkit.PermissionRequest) {
+    private fun grantableWebPermissionResources(request: android.webkit.PermissionRequest): Array<String> {
+        val allowed = setOf(
+            android.webkit.PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID,
+            android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE
+        )
+        return request.resources.filter { it in allowed }.toTypedArray()
+    }
+
+    private fun protectedMediaResources(request: android.webkit.PermissionRequest): Array<String> {
+        return request.resources
+            .filter { it == android.webkit.PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID }
+            .toTypedArray()
+    }
+
+    private fun denyAudioButAllowProtectedMediaIfPresent(request: android.webkit.PermissionRequest) {
+        val protectedMedia = protectedMediaResources(request)
+        if (protectedMedia.isNotEmpty()) {
+            request.grant(protectedMedia)
+        } else {
+            request.deny()
+        }
+    }
+
+    private fun continueWebPermissionRequest(request: android.webkit.PermissionRequest) {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-            val allowed = setOf(
-                android.webkit.PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID,
-                android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE
-            )
-            val grantable = request.resources.filter { it in allowed }.toTypedArray()
+            val grantable = grantableWebPermissionResources(request)
             if (grantable.isNotEmpty()) request.grant(grantable) else request.deny()
         } else {
             pendingPermissionRequest = request
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_CODE_RECORD_AUDIO)
+        }
+    }
+
+    private fun handleWebPermissionRequest(request: android.webkit.PermissionRequest) {
+        val grantable = grantableWebPermissionResources(request)
+        if (grantable.isEmpty()) {
+            request.deny()
+            return
+        }
+
+        val origin = runCatching { request.origin }.getOrNull()
+        val host = origin?.host?.lowercase()
+        if (android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE !in grantable || BrowserPreferences.isHostAllowedMicrophone(this, host)) {
+            continueWebPermissionRequest(request)
+            return
+        }
+
+        if (isFinishing || isDestroyed || isShowingMicrophoneDialog) {
+            denyAudioButAllowProtectedMediaIfPresent(request)
+            return
+        }
+
+        showMicrophoneAccessDialog(
+            origin = origin,
+            onAllowOnce = { continueWebPermissionRequest(request) },
+            onAllowHost = {
+                host?.let { BrowserPreferences.addAllowedMicrophoneHost(this, it) }
+                continueWebPermissionRequest(request)
+            },
+            onCancel = { denyAudioButAllowProtectedMediaIfPresent(request) }
+        )
+    }
+
+    private fun requestSpeechRecognitionMicrophoneAccess(pageUrl: String?) {
+        val pageUri = runCatching { pageUrl?.let(Uri::parse) }.getOrNull()
+        val host = pageUri?.host?.lowercase()
+        if (BrowserPreferences.isHostAllowedMicrophone(this, host)) {
+            continueSpeechRecognitionMicrophoneAccess()
+            return
+        }
+
+        if (isFinishing || isDestroyed || isShowingMicrophoneDialog) {
+            speechBridge?.onPermissionResult(false)
+            return
+        }
+
+        showMicrophoneAccessDialog(
+            origin = pageUri,
+            onAllowOnce = { continueSpeechRecognitionMicrophoneAccess() },
+            onAllowHost = {
+                host?.let { BrowserPreferences.addAllowedMicrophoneHost(this, it) }
+                continueSpeechRecognitionMicrophoneAccess()
+            },
+            onCancel = { speechBridge?.onPermissionResult(false) }
+        )
+    }
+
+    private fun continueSpeechRecognitionMicrophoneAccess() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            speechBridge?.onPermissionResult(true)
+        } else {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_CODE_RECORD_AUDIO)
+        }
+    }
+
+    private fun showMicrophoneAccessDialog(
+        origin: Uri?,
+        onAllowOnce: () -> Unit,
+        onAllowHost: () -> Unit,
+        onCancel: () -> Unit
+    ) {
+        val originLabel = origin?.host ?: origin?.toString() ?: getString(R.string.microphone_access_unknown_origin)
+        showSitePermissionDialog(
+            title = getString(R.string.microphone_access_title),
+            message = getString(R.string.microphone_access_message),
+            isMicrophoneDialog = true,
+            hostLabel = getString(R.string.microphone_access_host_label),
+            hostValue = originLabel,
+            detailMessage = getString(R.string.microphone_access_detail),
+            onAllowOnce = onAllowOnce,
+            onAllowHost = if (origin?.host.isNullOrBlank()) null else onAllowHost,
+            onCancel = onCancel
+        )
+    }
+
+    private fun showSitePermissionDialog(
+        title: String,
+        message: String,
+        isMicrophoneDialog: Boolean,
+        hostLabel: String? = null,
+        hostValue: String? = null,
+        detailMessage: String? = null,
+        onAllowOnce: () -> Unit,
+        onAllowHost: (() -> Unit)?,
+        onCancel: () -> Unit
+    ) {
+        val flagAccessor: () -> Boolean = { if (isMicrophoneDialog) isShowingMicrophoneDialog else isShowingCleartextDialog }
+        val flagSetter: (Boolean) -> Unit = { showing ->
+            if (isMicrophoneDialog) {
+                isShowingMicrophoneDialog = showing
+            } else {
+                isShowingCleartextDialog = showing
+            }
+        }
+
+        if (isFinishing || isDestroyed) {
+            onCancel()
+            return
+        }
+        if (flagAccessor()) return
+        flagSetter(true)
+
+        val view = layoutInflater.inflate(R.layout.dialog_cleartext_confirmation, null)
+        val titleView = view.findViewById<android.widget.TextView>(R.id.cleartext_title)
+        val messageView = view.findViewById<android.widget.TextView>(R.id.cleartext_message)
+        val hostContainer = view.findViewById<android.view.View>(R.id.cleartext_host_container)
+        val hostLabelView = view.findViewById<android.widget.TextView>(R.id.cleartext_host_label)
+        val hostValueView = view.findViewById<android.widget.TextView>(R.id.cleartext_host_value)
+        val detailView = view.findViewById<android.widget.TextView>(R.id.cleartext_detail)
+        val cancelButton = view.findViewById<com.google.android.material.button.MaterialButton>(R.id.btn_cancel_dialog)
+        val allowOnceButton = view.findViewById<com.google.android.material.button.MaterialButton>(R.id.btn_allow_once)
+        val allowHostButton = view.findViewById<com.google.android.material.button.MaterialButton>(R.id.btn_allow_host)
+        val dialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(
+            this,
+            com.google.android.material.R.style.ThemeOverlay_Material3_MaterialAlertDialog
+        ).setView(view).create()
+
+        titleView.text = title
+        messageView.text = message
+        if (!hostLabel.isNullOrBlank() && !hostValue.isNullOrBlank()) {
+            hostContainer.visibility = View.VISIBLE
+            hostLabelView.text = hostLabel
+            hostValueView.text = hostValue
+        } else {
+            hostContainer.visibility = View.GONE
+        }
+        if (!detailMessage.isNullOrBlank()) {
+            detailView.visibility = View.VISIBLE
+            detailView.text = detailMessage
+        } else {
+            detailView.visibility = View.GONE
+        }
+
+        cancelButton.setOnClickListener {
+            try { dialog.dismiss() } catch (_: Exception) {}
+            onCancel()
+        }
+        allowOnceButton.setOnClickListener {
+            try { dialog.dismiss() } catch (_: Exception) {}
+            onAllowOnce()
+        }
+        if (onAllowHost != null) {
+            allowHostButton.visibility = View.VISIBLE
+            allowHostButton.setOnClickListener {
+                try { dialog.dismiss() } catch (_: Exception) {}
+                onAllowHost()
+            }
+        } else {
+            allowHostButton.visibility = View.GONE
+        }
+
+        dialog.setOnDismissListener { flagSetter(false) }
+
+        try {
+            dialog.show()
+            val width = (resources.displayMetrics.widthPixels * 0.9).toInt()
+            dialog.window?.setLayout(width, WindowManager.LayoutParams.WRAP_CONTENT)
+        } catch (_: Exception) {
+            flagSetter(false)
+            onCancel()
         }
     }
 
@@ -170,18 +363,16 @@ class MainActivity : AppCompatActivity() {
             pendingPermissionRequest = null
             if (request != null) {
                 if (granted) {
-                    val allowed = setOf(
-                        android.webkit.PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID,
-                        android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE
-                    )
-                    val grantable = request.resources.filter { it in allowed }.toTypedArray()
+                    val grantable = grantableWebPermissionResources(request)
                     if (grantable.isNotEmpty()) request.grant(grantable) else request.deny()
                 } else {
-                    request.deny()
+                    denyAudioButAllowProtectedMediaIfPresent(request)
                 }
             }
 
-            speechBridge?.onPermissionResult(granted)
+            if (speechBridge?.hasPendingPermissionRequest() == true) {
+                speechBridge?.onPermissionResult(granted)
+            }
         }
     }
 
@@ -262,46 +453,15 @@ class MainActivity : AppCompatActivity() {
             },
             onCleartextNavigationRequested = { uri, allowOnce, allowhostPermanently, cancel ->
                 runOnUiThread {
-                    if (isFinishing || isDestroyed) {
-                        cancel()
-                        return@runOnUiThread
-                    }
-                    if (isShowingCleartextDialog) return@runOnUiThread
-                    isShowingCleartextDialog = true
                     val host = uri.host ?: uri.toString()
-                    val view = layoutInflater.inflate(R.layout.dialog_cleartext_confirmation, null)
-                    val titleView = view.findViewById<android.widget.TextView>(R.id.cleartext_title)
-                    val messageView = view.findViewById<android.widget.TextView>(R.id.cleartext_message)
-                    titleView.text = "Insecure connection"
-                    messageView.text = "You are about to open an HTTP (insecure) site: $host. This may expose data to network attackers. What would you like to do?"
-
-                    val dialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(
-                        this,
-                        com.google.android.material.R.style.ThemeOverlay_Material3_MaterialAlertDialog
-                    ).setView(view).create()
-
-                    dialog.setOnDismissListener { isShowingCleartextDialog = false }
-
-                    view.findViewById<com.google.android.material.button.MaterialButton>(R.id.btn_cancel_dialog).setOnClickListener {
-                        try { dialog.dismiss() } catch (_: Exception) {}
-                        cancel()
-                    }
-                    view.findViewById<com.google.android.material.button.MaterialButton>(R.id.btn_allow_once).setOnClickListener {
-                        try { dialog.dismiss() } catch (_: Exception) {}
-                        allowOnce()
-                    }
-                    view.findViewById<com.google.android.material.button.MaterialButton>(R.id.btn_allow_host).setOnClickListener {
-                        try { dialog.dismiss() } catch (_: Exception) {}
-                        allowhostPermanently()
-                    }
-                    try {
-                        dialog.show()
-                        val width = (resources.displayMetrics.widthPixels * 0.9).toInt()
-                        dialog.window?.setLayout(width, WindowManager.LayoutParams.WRAP_CONTENT)
-                    } catch (e: Exception) {
-                        isShowingCleartextDialog = false
-                        cancel()
-                    }
+                    showSitePermissionDialog(
+                        title = getString(R.string.cleartext_connection_title),
+                        message = getString(R.string.cleartext_connection_message, host),
+                        isMicrophoneDialog = false,
+                        onAllowOnce = allowOnce,
+                        onAllowHost = allowhostPermanently,
+                        onCancel = cancel
+                    )
                 }
             },
             onError = { _, description ->
@@ -327,17 +487,23 @@ class MainActivity : AppCompatActivity() {
         webView?.let { view ->
             configureWebView(view, browserCallbacks ?: BrowserCallbacks(), desktopMode, currentUserAgentProfile)
 
-            speechBridge = com.kododake.aabrowser.web.SpeechRecognitionBridge(view) {
-                ActivityCompat.requestPermissions(
-                    this,
-                    arrayOf(Manifest.permission.RECORD_AUDIO),
-                    REQUEST_CODE_RECORD_AUDIO
-                )
+            speechBridge = com.kododake.aabrowser.web.SpeechRecognitionBridge(view) { pageUrl ->
+                requestSpeechRecognitionMicrophoneAccess(pageUrl)
             }
-            view.addJavascriptInterface(
-                speechBridge!!,
-                com.kododake.aabrowser.web.SpeechRecognitionBridge.JS_INTERFACE_NAME
-            )
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+                WebViewCompat.addWebMessageListener(
+                    view,
+                    com.kododake.aabrowser.web.SpeechRecognitionBridge.BRIDGE_OBJECT_NAME,
+                    setOf("*")
+                ) { webView, message, sourceOrigin, isMainFrame, _ ->
+                    speechBridge?.handleWebMessage(
+                        message = message,
+                        sourceOrigin = sourceOrigin,
+                        isMainFrame = isMainFrame,
+                        currentPageUrl = webView.url
+                    )
+                }
+            }
 
             view.addJavascriptInterface(object {
                 @android.webkit.JavascriptInterface
@@ -787,7 +953,7 @@ class MainActivity : AppCompatActivity() {
             })
             val delBtn = MaterialButton(ContextThemeWrapper(this, com.google.android.material.R.style.Widget_Material3_Button_IconButton_Filled_Tonal)).apply {
                 layoutParams = LinearLayout.LayoutParams((40 * density).toInt(), (40 * density).toInt())
-                setIconResource(android.R.drawable.ic_menu_delete)
+                setIconResource(R.drawable.bookmark_remove_24px)
                 setIconTint(ColorStateList.valueOf(Color.WHITE))
                 iconPadding = 0
                 iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START

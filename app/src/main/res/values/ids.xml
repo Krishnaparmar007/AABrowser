@@ -12,6 +12,8 @@
     <item name="userAgentSafari" type="id" />
     <item name="bitcoinAddress" type="id" />
     <item name="copyBitcoinButton" type="id" />
+    <item name="buttonClearSitePermissions" type="id" />
+    <item name="buttonClearCookies" type="id" />
     <item name="ViewKododakeButton" type="id" />
     <item name="viewLicenseButton" type="id" />
     <item name="viewOssLicensesButton" type="id" />

@@ -8,6 +8,13 @@
     
     <string name="secure_connection">Secure connection</string>
     <string name="insecure_connection">Insecure connection</string>
+    <string name="cleartext_connection_title">Insecure connection</string>
+    <string name="cleartext_connection_message">You are about to open an HTTP (insecure) site: %1$s. This may expose data to network attackers. What would you like to do?</string>
+    <string name="microphone_access_title">Microphone access request</string>
+    <string name="microphone_access_message">This site wants to use your microphone.</string>
+    <string name="microphone_access_host_label">Requesting host</string>
+    <string name="microphone_access_detail">- Audio from your microphone may be captured\n- Allow once gives access only this time\n- Always allow saves permission for this host</string>
+    <string name="microphone_access_unknown_origin">this page</string>
     
     <string name="menu_desktop_mode">Request desktop site</string>
     <string name="menu_back">Back</string>
@@ -58,6 +65,19 @@
     <string name="settings_user_agent_android_subtitle">Mobile: Android Chrome. Desktop mode uses Windows Chrome UA.</string>
     <string name="settings_user_agent_safari">Safari (iOS/macOS)</string>
     <string name="settings_user_agent_safari_subtitle">Use Safari-like identity for Apple-optimized pages.</string>
+    <string name="settings_site_data_title">Privacy and site data</string>
+    <string name="settings_site_data_description">Manage saved site permissions, cookies, and local site data stored by the browser.</string>
+    <string name="settings_clear_site_permissions">Reset saved site permissions</string>
+    <string name="settings_clear_cookies">Delete cookies and site data</string>
+    <string name="settings_action_delete">Delete</string>
+    <string name="settings_clear_site_permissions_title">Reset saved site permissions</string>
+    <string name="settings_clear_site_permissions_message">Saved site permissions will be deleted.\n\n- HTTP sites you allowed will ask again\n- Microphone access you allowed will ask again</string>
+    <string name="settings_clear_site_permissions_success_title">Saved site permissions removed</string>
+    <string name="settings_clear_site_permissions_success_message">Saved permissions for HTTP access and microphone access have been deleted.</string>
+    <string name="settings_clear_cookies_title">Delete cookies and site data</string>
+    <string name="settings_clear_cookies_message">Saved browser data will be deleted.\n\n- You may be signed out of websites\n- Login sessions may end\n- Site settings and saved form data may be reset</string>
+    <string name="settings_clear_cookies_success_title">Cookies and site data deleted</string>
+    <string name="settings_clear_cookies_success_message">Stored cookies, local site data, and saved form data have been deleted from the browser.</string>
     
     <string name="settings_donate">Donate</string>
     <string name="settings_donate_description">If you find this app useful, please consider supporting me with a donation. It really fuels my motivation to keep improving it!</string>

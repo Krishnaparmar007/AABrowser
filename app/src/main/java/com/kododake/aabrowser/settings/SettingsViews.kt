@@ -11,6 +11,9 @@ import android.net.Uri
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.webkit.CookieManager
+import android.webkit.WebStorage
+import android.webkit.WebViewDatabase
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -19,6 +22,7 @@ import android.widget.TextView
 import android.widget.Toast
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.kododake.aabrowser.R
 import com.kododake.aabrowser.data.BrowserPreferences
 import com.kododake.aabrowser.model.UserAgentProfile
@@ -100,7 +104,7 @@ object SettingsViews {
             id = R.id.buttonSettingsBack
             text = context.getString(R.string.menu_back)
             setTextColor(brightOnPrimary)
-            setIconResource(android.R.drawable.ic_menu_revert)
+            setIconResource(R.drawable.arrow_back_24px)
             iconTint = ColorStateList.valueOf(brightOnPrimary)
             iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
             iconSize = smallIconSize
@@ -124,17 +128,48 @@ object SettingsViews {
             setCardBackgroundColor(getColorFromAttr(com.google.android.material.R.attr.colorSurfaceContainerLow))
         }
 
+        fun createSectionTitle(
+            titleText: String,
+            iconRes: Int,
+            iconWidthDp: Int = 20,
+            iconHeightDp: Int = 20,
+            tintIcon: Boolean = true,
+            bottomPaddingDp: Int = 0
+        ): LinearLayout {
+            return LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                if (bottomPaddingDp > 0) {
+                    setPadding(0, 0, 0, dp(bottomPaddingDp))
+                }
+
+                addView(ImageView(context).apply {
+                    layoutParams = LinearLayout.LayoutParams(dp(iconWidthDp), dp(iconHeightDp)).apply {
+                        marginEnd = dp(10)
+                    }
+                    setImageResource(iconRes)
+                    if (tintIcon) {
+                        imageTintList = ColorStateList.valueOf(primaryColor)
+                    }
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                    adjustViewBounds = true
+                })
+
+                addView(TextView(context).apply {
+                    text = titleText
+                    setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleMedium)
+                    typeface = Typeface.DEFAULT_BOLD
+                })
+            }
+        }
+
         // --- User Agent ---
         val uaCard = createStyledCard()
         val uaInner = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(16), dp(16), dp(16))
         }
-        uaInner.addView(TextView(context).apply {
-            text = context.getString(R.string.settings_user_agent)
-            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleMedium)
-            typeface = Typeface.DEFAULT_BOLD
-        })
+        uaInner.addView(createSectionTitle(context.getString(R.string.settings_user_agent), R.drawable.devices_other_24px, bottomPaddingDp = 4))
         val uaGroup = RadioGroup(context).apply {
             id = R.id.userAgentGroup
             orientation = RadioGroup.VERTICAL
@@ -158,11 +193,7 @@ object SettingsViews {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(16), dp(16), dp(16))
         }
-        donateInner.addView(TextView(context).apply {
-            text = context.getString(R.string.settings_donate)
-            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleMedium)
-            typeface = Typeface.DEFAULT_BOLD
-        })
+        donateInner.addView(createSectionTitle(context.getString(R.string.settings_donate), R.drawable.volunteer_activism_24px, bottomPaddingDp = 4))
         donateInner.addView(TextView(context).apply {
             text = context.getString(R.string.settings_donate_description)
             setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
@@ -195,7 +226,7 @@ object SettingsViews {
         val copyBtn = MaterialButton(context, null, com.google.android.material.R.attr.materialButtonTonalStyle).apply {
             id = R.id.copyBitcoinButton
             text = context.getString(R.string.donate_copy)
-            setIconResource(android.R.drawable.ic_menu_save)
+            setIconResource(R.drawable.content_copy_24px)
             iconSize = smallIconSize
             iconPadding = dp(8)
             iconTintMode = android.graphics.PorterDuff.Mode.SRC_IN
@@ -218,11 +249,7 @@ object SettingsViews {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(16), dp(16), dp(16))
         }
-        donorsInner.addView(TextView(context).apply {
-            text = context.getString(R.string.settings_donors)
-            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleMedium)
-            typeface = Typeface.DEFAULT_BOLD
-        })
+        donorsInner.addView(createSectionTitle(context.getString(R.string.settings_donors), R.drawable.favorite_24px, bottomPaddingDp = 4))
         donorsInner.addView(TextView(context).apply {
             text = context.getString(R.string.settings_donors_description)
             setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
@@ -254,6 +281,56 @@ object SettingsViews {
                 isFocusable = true
             }
         }
+        //SiteData
+        fun showSuccessDialog(title: String, message: String) {
+            MaterialAlertDialogBuilder(context, com.google.android.material.R.style.ThemeOverlay_Material3_MaterialAlertDialog)
+                .setTitle(title)
+                .setMessage(message)
+                .setPositiveButton(android.R.string.ok, null)
+                .show()
+        }
+
+        fun showConfirmationDialog(
+            title: String,
+            message: String,
+            onConfirm: () -> Unit
+        ) {
+            MaterialAlertDialogBuilder(context, com.google.android.material.R.style.ThemeOverlay_Material3_MaterialAlertDialog)
+                .setTitle(title)
+                .setMessage(message)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.settings_action_delete) { _, _ -> onConfirm() }
+                .show()
+        }
+
+        val siteDataCard = createStyledCard()
+        val siteDataInner = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+        }
+        siteDataInner.addView(createSectionTitle(context.getString(R.string.settings_site_data_title), R.drawable.security_24px, bottomPaddingDp = 4))
+        siteDataInner.addView(TextView(context).apply {
+            text = context.getString(R.string.settings_site_data_description)
+            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
+            setTextColor(onSurfaceColor)
+            setPadding(0, dp(4), 0, dp(8))
+        })
+        siteDataInner.addView(
+            createListButton(
+                R.id.buttonClearSitePermissions,
+                context.getString(R.string.settings_clear_site_permissions),
+                R.drawable.lock_reset_24px
+            )
+        )
+        siteDataInner.addView(
+            createListButton(
+                R.id.buttonClearCookies,
+                context.getString(R.string.settings_clear_cookies),
+                R.drawable.delete_forever_24px
+            )
+        )
+        siteDataCard.addView(siteDataInner)
+        container.addView(siteDataCard)
 
 
         // --- License ---
@@ -262,12 +339,7 @@ object SettingsViews {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(12), dp(16), dp(16))
         }
-        licenseInner.addView(TextView(context).apply {
-            text = context.getString(R.string.settings_license)
-            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleMedium)
-            typeface = Typeface.DEFAULT_BOLD
-            setPadding(0, 0, 0, dp(8))
-        })
+        licenseInner.addView(createSectionTitle(context.getString(R.string.settings_license), R.drawable.gplv3, iconWidthDp = 48, iconHeightDp = 24, tintIcon = false, bottomPaddingDp = 8))
         licenseInner.addView(TextView(context).apply {
             text = context.getString(R.string.settings_license_description)
             setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
@@ -275,8 +347,8 @@ object SettingsViews {
             setPadding(0, 0, 0, dp(8))
         })
         licenseInner.addView(createListButton(R.id.ViewKododakeButton, context.getString(R.string.kododake_name), R.drawable.ic_github))
-        licenseInner.addView(createListButton(R.id.viewLicenseButton, context.getString(R.string.settings_license), android.R.drawable.ic_menu_info_details))
-        licenseInner.addView(createListButton(R.id.viewOssLicensesButton, context.getString(R.string.open_source_view_licenses), android.R.drawable.ic_menu_search))
+        licenseInner.addView(createListButton(R.id.viewLicenseButton, context.getString(R.string.settings_license), R.drawable.info_24px))
+        licenseInner.addView(createListButton(R.id.viewOssLicensesButton, context.getString(R.string.open_source_view_licenses), R.drawable.search_24px))
         licenseCard.addView(licenseInner)
         container.addView(licenseCard)
 
@@ -324,6 +396,41 @@ object SettingsViews {
                 context.startActivity(intent)
             } catch (e: Exception) {
                 Toast.makeText(context, R.string.error_generic_message, Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        container.findViewById<View>(R.id.buttonClearSitePermissions)?.setOnClickListener {
+            showConfirmationDialog(
+                title = context.getString(R.string.settings_clear_site_permissions_title),
+                message = context.getString(R.string.settings_clear_site_permissions_message)
+            ) {
+                BrowserPreferences.clearSavedSitePermissions(context)
+                showSuccessDialog(
+                    title = context.getString(R.string.settings_clear_site_permissions_success_title),
+                    message = context.getString(R.string.settings_clear_site_permissions_success_message)
+                )
+            }
+        }
+
+        container.findViewById<View>(R.id.buttonClearCookies)?.setOnClickListener {
+            showConfirmationDialog(
+                title = context.getString(R.string.settings_clear_cookies_title),
+                message = context.getString(R.string.settings_clear_cookies_message)
+            ) {
+                WebStorage.getInstance().deleteAllData()
+                WebViewDatabase.getInstance(context).apply {
+                    clearHttpAuthUsernamePassword()
+                }
+                runCatching { context.deleteDatabase("webview.db") }
+                runCatching { context.deleteDatabase("webviewCache.db") }
+                val cookieManager = CookieManager.getInstance()
+                cookieManager.removeAllCookies {
+                    cookieManager.flush()
+                    showSuccessDialog(
+                        title = context.getString(R.string.settings_clear_cookies_success_title),
+                        message = context.getString(R.string.settings_clear_cookies_success_message)
+                    )
+                }
             }
         }
 
